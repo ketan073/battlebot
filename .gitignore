@@ -1,0 +1,14 @@
+# Binaries
+engine
+sample_bot
+*.o
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
