@@ -1,6 +1,8 @@
 #include <bits/stdc++.h>
-#include <wait.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 using namespace std;
 
@@ -29,6 +31,40 @@ struct Player {
 };
 
 Player bot[NUM_PLAYER];
+
+struct BidResult {
+    int player_id;
+    int bid;
+    int water_req;
+    bool won_water;
+};
+
+struct RoundData {
+    int round;
+    int water_supply;
+    vector<BidResult> results;
+    int health[NUM_PLAYER];
+    int balance[NUM_PLAYER];
+    bool alive[NUM_PLAYER];
+};
+struct Replay {
+    string timestamp;
+    vector<string> bot_paths;
+    vector<RoundData> rounds;
+    vector<string> log;
+};
+
+Replay game_replay;
+
+bool cmp_bid(const BidResult& a, const BidResult& b){
+    if(a.bid != b.bid) return a.bid > b.bid;
+    else return a.water_req < b.water_req;
+}
+
+bool cmp_survivor(const int a, const int b){
+    if(bot[a].health != bot[b].health) return bot[a].health > bot[b].health;
+    return bot[a].balance > bot[b].balance;
+}
 
 void clean_bots(){
     for(int i = 0; i < NUM_PLAYER; i++){
@@ -86,11 +122,10 @@ void child_bots(int idx, char* bot_path){
             close(b.pipe_to_bot[0]);
             close(b.pipe_from_bot[1]);
             
-            execlp(bot_path, bot_path, NULL);
+            execlp(bot_path, bot_path, (char*)NULL);
 
-            cerr << "Error: Could not exec bot " << b.id << "\n";
-            clean_bots();
-            exit(1);
+            perror("execlp");
+            _exit(1);
         }
         else{ // Parent Process
             b.pid = pid;
@@ -215,23 +250,6 @@ void get_bid(){
     }
 }
 
-struct BidResult {
-    int player_id;
-    int bid;
-    int water_req;
-    bool won_water;
-};
-
-bool cmp_bid(BidResult& a, BidResult& b){
-    if(a.bid != b.bid) return a.bid > b.bid;
-    else return a.water_req < b.water_req;
-}
-
-bool cmp_survivor(int a, int b){
-    if(bot[a].health != bot[b].health) return bot[a].health > bot[b].health;
-    return bot[a].balance > bot[b].balance;
-}
-
 vector<BidResult> run_auction(int water_supply){
     vector<BidResult> results;
     
@@ -281,6 +299,8 @@ void check_eliminations(){
             
             cout << ">>> Bot: " << bot[i].id << " (" << bot[i].name << ") has been ELIMINATED\n";
             cout.flush();
+
+            game_replay.log.push_back(">>> " + bot[i].name + " has been ELIMINATED");
         }
     }
 }
@@ -361,6 +381,86 @@ void print_final_results(){
     }
 }
 
+void save_replay(const string& filename){
+    ofstream file(filename);
+    if(!file.is_open()){
+        cerr << "Warning: Could not save replay to " << filename << "\n";
+        return;
+    }
+    
+    file << "{\n";
+    file << "  \"version\": 1,\n";
+    file << "  \"timestamp\": \"" << game_replay.timestamp << "\",\n";
+    
+    file << "  \"bot_paths\": [";
+    for(size_t i = 0; i < game_replay.bot_paths.size(); i++){
+        file << "\"" << game_replay.bot_paths[i] << "\"";
+        if(i < game_replay.bot_paths.size() - 1) file << ", ";
+    }
+    file << "],\n";
+    
+    file << "  \"rounds\": [\n";
+    for(size_t ri = 0; ri < game_replay.rounds.size(); ri++){
+        RoundData& rd = game_replay.rounds[ri];
+        file << "    {\n";
+        file << "      \"round\": " << rd.round << ",\n";
+        file << "      \"water_supply\": " << rd.water_supply << ",\n";
+        
+        file << "      \"bids\": [";
+        for(size_t bi = 0; bi < rd.results.size(); bi++){
+            BidResult& br = rd.results[bi];
+            file << "{\"id\":" << br.player_id << ",\"bid\":" << br.bid << ",\"req\":" << br.water_req << ",\"won\":" << (br.won_water ? "true" : "false") << "}";
+            if(bi < rd.results.size() - 1) file << ",";
+        }
+        file << "],\n";
+        
+        file << "      \"health\": [";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            file << rd.health[i];
+            if(i < NUM_PLAYER - 1) file << ",";
+        }
+        file << "],\n";
+        
+        file << "      \"balance\": [";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            file << rd.balance[i];
+            if(i < NUM_PLAYER - 1) file << ",";
+        }
+        file << "],\n";
+        
+        file << "      \"alive\": [";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            file << (rd.alive[i] ? "true" : "false");
+            if(i < NUM_PLAYER - 1) file << ",";
+        }
+        file << "]\n";
+        
+        file << "    }";
+        if(ri < game_replay.rounds.size() - 1) file << ",";
+        file << "\n";
+    }
+    file << "  ],\n";
+    
+    // Log
+    file << "  \"log\": [\n";
+    for(size_t i = 0; i < game_replay.log.size(); i++){
+        string msg = game_replay.log[i];
+        
+        size_t pos = 0;
+        while((pos = msg.find("\"", pos)) != string::npos){
+            msg.replace(pos, 1, "\\\"");
+            pos += 2;
+        }
+        file << "    \"" << msg << "\"";
+        if(i < game_replay.log.size() - 1) file << ",";
+        file << "\n";
+    }
+    file << "  ]\n";
+    
+    file << "}\n";
+    file.close();
+}
+
 int main(int argc, char* argv[]){
     if(argc != NUM_PLAYER + 1){
         cerr << "Need " << NUM_PLAYER << " bots to run this\n";
@@ -371,6 +471,15 @@ int main(int argc, char* argv[]){
         cerr << "\n";
         exit(1);
     }
+
+    time_t now = time(nullptr);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    game_replay.timestamp = timestamp;
+    
+    for(int i = 1; i <= NUM_PLAYER; i++){
+        game_replay.bot_paths.push_back(argv[i]);
+    }
     
     cout << "--------------------------------------------\n";
     cout << "            BATTLEBOT CHALLENGE             \n";
@@ -378,11 +487,13 @@ int main(int argc, char* argv[]){
 
 
     init_bots();
-    cout << "Initilized " << NUM_PLAYER << " bots successfully\n";
+    cout << "Initialized " << NUM_PLAYER << " bots successfully\n";
+    game_replay.log.push_back("Initialized " + to_string(NUM_PLAYER) + " bots");
 
     for(int i = 0; i < NUM_PLAYER; i++){
         child_bots(i, argv[i + 1]);
         cout << "  Player " << (i + 1) << " (" << PLAYER_NAME[i] << "): " << argv[i + 1] << endl;
+        game_replay.log.push_back("  Player " + to_string(i+1) + " (" + PLAYER_NAME[i] + "): " + argv[i+1]);
     }
 
     usleep(100000);
@@ -390,17 +501,21 @@ int main(int argc, char* argv[]){
 
     cout << "\nSending initialization data...\n";
     send_initData();
+    game_replay.log.push_back("Sending initialization data...");
 
     cout << "\nLet the game begin!\n";
+    game_replay.log.push_back("Game started");
 
     for(int round = 1; round <= NUM_ROUND; round++){
-
         int alive_cnt = aliveCnt();
         if(alive_cnt <= 1){
             cout << "\nGame ended (< 2 bots left)\nRound: " << round << "\nBot alive#: " << alive_cnt << "\n";
+            game_replay.log.push_back("Game ended (< 2 bots left)");
             break;
         }
         int water_supply = gen_water_supply();
+
+        game_replay.log.push_back("--- Round " + to_string(round) + " | Water: " + to_string(water_supply) + " units ---");
         
         send_round_info(round, water_supply);
         
@@ -411,14 +526,55 @@ int main(int argc, char* argv[]){
         if(round < NUM_ROUND){
             pay_salaries();
         }
-        
+
+        RoundData rd;
+        rd.round = round;
+        rd.water_supply = water_supply;
+        rd.results = results;
+        for(int i = 0; i < NUM_PLAYER; i++){
+            rd.health[i] = bot[i].health;
+            rd.balance[i] = bot[i].balance;
+            rd.alive[i] = bot[i].alive;
+        }
+        game_replay.rounds.push_back(rd);
+
         print_round_summary(round, water_supply, results);
         
         check_eliminations();
     }
 
     print_final_results();
+    game_replay.log.push_back("=== GAME OVER ===");
+
     clean_bots();
+
+    struct stat st;
+    if(stat("replays", &st) != 0){
+        mkdir("replays", 0775);
+    }
+    
+    char cur_time[32];
+    strftime(cur_time, sizeof(cur_time), "%d-%H%M%S", localtime(&now));
+
+    string bot_names = "";
+    for(int i = 0; i < NUM_PLAYER; i++){
+        string path = game_replay.bot_paths[i];
+        size_t pos = path.rfind('/');
+        string name = (pos != string::npos) ? path.substr(pos + 1) : path;
+
+        if(name.substr(0, 2) == "./") name = name.substr(2);
+        bot_names += name;
+        if(i < NUM_PLAYER - 1) bot_names += "-";
+    }
+    
+    string replay_file = "replays/game-" + string(cur_time) + "-" + bot_names + ".json";
+    
+    save_replay(replay_file);
+    cout << "\nReplay saved to: " << replay_file << "\n";
+    
+    save_replay("replays/latest.json");
+    cout << "Also saved to: replays/latest.json\n";
     
     return 0;
 }
+    
