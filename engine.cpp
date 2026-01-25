@@ -6,6 +6,8 @@
 
 using namespace std;
 
+mt19937 rng(random_device{}());
+
 const int NUM_PLAYER = 5;
 const int NUM_ROUND = 20;
 const string PLAYER_NAME[5] = {"Alex", "Bob", "Cindy", "David", "Eric"};
@@ -172,10 +174,19 @@ int aliveCnt(){
     return alive_cnt;
 }
 
-int gen_water_supply(){
+vector<int> water_supply(NUM_ROUND);
+
+void init_water_supply(){
     int LOWER = 10;
     int UPPER = 30;
-    return LOWER + (rand() % (UPPER - LOWER + 1));
+    uniform_int_distribution<int> dist(LOWER, UPPER);
+    for(int i = 0; i < NUM_ROUND; i++){
+        water_supply[i] = dist(rng);
+    }
+}
+
+int gen_water_supply(int round){
+    return water_supply[round];
 }
 
 void send_round_info(int round, int water_supply){
@@ -485,8 +496,9 @@ int main(int argc, char* argv[]){
     cout << "            BATTLEBOT CHALLENGE             \n";
     cout << "--------------------------------------------\n";
 
-
     init_bots();
+    init_water_supply();
+
     cout << "Initialized " << NUM_PLAYER << " bots successfully\n";
     game_replay.log.push_back("Initialized " + to_string(NUM_PLAYER) + " bots");
 
@@ -497,7 +509,6 @@ int main(int argc, char* argv[]){
     }
 
     usleep(100000);
-    srand(time(nullptr));
 
     cout << "\nSending initialization data...\n";
     send_initData();
@@ -513,7 +524,7 @@ int main(int argc, char* argv[]){
             game_replay.log.push_back("Game ended (< 2 bots left)");
             break;
         }
-        int water_supply = gen_water_supply();
+        int water_supply = gen_water_supply(round - 1);
 
         game_replay.log.push_back("--- Round " + to_string(round) + " | Water: " + to_string(water_supply) + " units ---");
         
