@@ -13,8 +13,21 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Build
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev zenity
+    
+    - name: Build engine
       run: make
     
-    - name: Test run
+    - name: Test run engine
       run: ./engine ./sample_bot ./sample_bot ./sample_bot ./sample_bot ./sample_bot
+    
+    - name: Build viewer
+      run: |
+        cd viewer
+        mkdir -p build
+        cd build
+        cmake ..
+        make
