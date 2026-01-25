@@ -32,6 +32,25 @@ g++ -std=c++17 -O2 -o sample_bot sample_bot.cpp
 ./engine ./bot1 ./bot2 ./bot3 ./bot4 ./bot5
 ```
 
+## Replay Viewer
+
+Visualize game replays with charts, player stats, and timeline controls.
+
+**Build and run viewer:**
+```bash
+make viewer          # First time: builds the viewer (fetches dependencies)
+make run-viewer      # Run the viewer
+```
+
+Or run directly:
+```bash
+./viewer/build/viewer
+```
+
+Click the "Load Replay" button to open a file dialog and select any `.json` replay file.
+
+**Requirements:** `zenity` (usually pre-installed on Ubuntu/Debian). If missing: `sudo apt install zenity`
+
 ## Windows Users
 
 The engine does not run natively on Windows. Use one of:

@@ -13,4 +13,13 @@ sample_bot
 # OS
 .DS_Store
 
+# CMake/Build
+viewer/build/
+viewer/CMakeFiles/
+viewer/cmake_install.cmake
+viewer/CMakeCache.txt
+
+# ImGui
+imgui.ini
+
 replays/
