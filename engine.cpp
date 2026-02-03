@@ -3,6 +3,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 using namespace std;
 
@@ -57,6 +58,8 @@ struct Replay {
 };
 
 Replay game_replay;
+
+bool g_tourney_mode = false;
 
 bool cmp_bid(const BidResult& a, const BidResult& b){
     if(a.bid != b.bid) return a.bid > b.bid;
@@ -229,13 +232,47 @@ void send_round_info(int round, int water_supply){
     }
 }
 
-// TODO: add time limit for bidding phase
+const int BID_TIMEOUT_SEC = 2;
+
+void drain_pipe(int fd){
+    char discard[256];
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    while(read(fd, discard, sizeof(discard)) > 0);
+    fcntl(fd, F_SETFL, flags);
+}
+
 void get_bid(){
     for(int i = 0; i < NUM_PLAYER; i++){
         if(!bot[i].alive) continue;
         
         int bid = 0;
         try{
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(bot[i].pipe_from_bot[0], &read_fds);
+            
+            struct timeval timeout;
+            timeout.tv_sec = BID_TIMEOUT_SEC;
+            timeout.tv_usec = 0;
+            
+            int ready = select(bot[i].pipe_from_bot[0] + 1, &read_fds, nullptr, nullptr, &timeout);
+            
+            if(ready <= 0){
+                if(ready == 0){
+                    if(!g_tourney_mode){
+                        cerr << "Warning: Bot " << bot[i].id << " (" << bot[i].name << ") timed out after " << BID_TIMEOUT_SEC << "s, using bid = 0\n";
+                    }
+                    game_replay.log.push_back("Bot " + bot[i].name + " timed out, bid = 0");
+                    drain_pipe(bot[i].pipe_from_bot[0]);
+                }
+                else{
+                    cerr << "Warning: select() error for bot " << bot[i].id << ", using bid = 0\n";
+                }
+                bot[i].prev_bid = 0;
+                continue;
+            }
+            
             char buffer[256];
             ssize_t n = read(bot[i].pipe_from_bot[0], buffer, sizeof(buffer) - 1);
             if(n <= 0){
@@ -308,8 +345,10 @@ void check_eliminations(){
                 bot[i].pid = -1;
             }
             
-            cout << ">>> Bot: " << bot[i].id << " (" << bot[i].name << ") has been ELIMINATED\n";
-            cout.flush();
+            if(!g_tourney_mode){
+                cout << ">>> Bot: " << bot[i].id << " (" << bot[i].name << ") has been ELIMINATED\n";
+                cout.flush();
+            }
 
             game_replay.log.push_back(">>> " + bot[i].name + " has been ELIMINATED");
         }
@@ -473,13 +512,39 @@ void save_replay(const string& filename){
 }
 
 int main(int argc, char* argv[]){
-    if(argc != NUM_PLAYER + 1){
-        cerr << "Need " << NUM_PLAYER << " bots to run this\n";
-        cerr << "Expected CMD: ./engine";
-        for(int i = 0; i < NUM_PLAYER; i++){
-            cerr << " ./bot" << (i + 1);
+    bool tourney_mode = false;
+    string replay_output_path = "";
+    int bot_start_idx = 1;
+    
+    for(int i = 1; i < argc; i++){
+        string arg = argv[i];
+        if(arg == "--tourney"){
+            tourney_mode = true;
+            g_tourney_mode = true;
         }
-        cerr << "\n";
+        else if(arg == "--replay-output"){
+            if(i + 1 < argc){
+                replay_output_path = argv[i + 1];
+                i++;
+            }
+            else{
+                cerr << "Error: --replay-output requires a path argument\n";
+                exit(1);
+            }
+        }
+        else{
+            bot_start_idx = i;
+            break;
+        }
+    }
+    
+    int num_bots = argc - bot_start_idx;
+    if(num_bots != NUM_PLAYER){
+        cerr << "Need " << NUM_PLAYER << " bots to run this\n";
+        cerr << "Usage: ./engine [--tourney] [--replay-output <path>] bot1 bot2 bot3 bot4 bot5\n";
+        cerr << "\nFlags:\n";
+        cerr << "  --tourney           Tournament mode: JSON output to stdout, no console output\n";
+        cerr << "  --replay-output X   Save full replay to path X (only with --tourney)\n";
         exit(1);
     }
 
@@ -488,39 +553,53 @@ int main(int argc, char* argv[]){
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
     game_replay.timestamp = timestamp;
     
-    for(int i = 1; i <= NUM_PLAYER; i++){
+    for(int i = bot_start_idx; i < bot_start_idx + NUM_PLAYER; i++){
         game_replay.bot_paths.push_back(argv[i]);
     }
     
-    cout << "--------------------------------------------\n";
-    cout << "            BATTLEBOT CHALLENGE             \n";
-    cout << "--------------------------------------------\n";
+    if(!tourney_mode){
+        cout << "--------------------------------------------\n";
+        cout << "            BATTLEBOT CHALLENGE             \n";
+        cout << "--------------------------------------------\n";
+    }
 
     init_bots();
     init_water_supply();
 
-    cout << "Initialized " << NUM_PLAYER << " bots successfully\n";
+    if(!tourney_mode){
+        cout << "Initialized " << NUM_PLAYER << " bots successfully\n";
+    }
     game_replay.log.push_back("Initialized " + to_string(NUM_PLAYER) + " bots");
 
     for(int i = 0; i < NUM_PLAYER; i++){
-        child_bots(i, argv[i + 1]);
-        cout << "  Player " << (i + 1) << " (" << PLAYER_NAME[i] << "): " << argv[i + 1] << endl;
-        game_replay.log.push_back("  Player " + to_string(i+1) + " (" + PLAYER_NAME[i] + "): " + argv[i+1]);
+        child_bots(i, argv[i + bot_start_idx]);
+        if(!tourney_mode){
+            cout << "  Player " << (i + 1) << " (" << PLAYER_NAME[i] << "): " << argv[i + bot_start_idx] << endl;
+        }
+        game_replay.log.push_back("  Player " + to_string(i+1) + " (" + PLAYER_NAME[i] + "): " + argv[i + bot_start_idx]);
     }
 
     usleep(100000);
 
-    cout << "\nSending initialization data...\n";
+    if(!tourney_mode){
+        cout << "\nSending initialization data...\n";
+    }
     send_initData();
     game_replay.log.push_back("Sending initialization data...");
 
-    cout << "\nLet the game begin!\n";
+    if(!tourney_mode){
+        cout << "\nLet the game begin!\n";
+    }
     game_replay.log.push_back("Game started");
 
+    int last_round = 0;
     for(int round = 1; round <= NUM_ROUND; round++){
+        last_round = round;
         int alive_cnt = aliveCnt();
         if(alive_cnt <= 1){
-            cout << "\nGame ended (< 2 bots left)\nRound: " << round << "\nBot alive#: " << alive_cnt << "\n";
+            if(!tourney_mode){
+                cout << "\nGame ended (< 2 bots left)\nRound: " << round << "\nBot alive#: " << alive_cnt << "\n";
+            }
             game_replay.log.push_back("Game ended (< 2 bots left)");
             break;
         }
@@ -549,43 +628,66 @@ int main(int argc, char* argv[]){
         }
         game_replay.rounds.push_back(rd);
 
-        print_round_summary(round, water_supply, results);
+        if(!tourney_mode){
+            print_round_summary(round, water_supply, results);
+        }
         
         check_eliminations();
     }
 
-    print_final_results();
+    if(!tourney_mode){
+        print_final_results();
+    }
     game_replay.log.push_back("=== GAME OVER ===");
 
     clean_bots();
 
-    struct stat st;
-    if(stat("replays", &st) != 0){
-        mkdir("replays", 0775);
+    if(tourney_mode){
+        cout << "{\"health\":[";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            cout << bot[i].health;
+            if(i < NUM_PLAYER - 1) cout << ",";
+        }
+        cout << "],\"balance\":[";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            cout << bot[i].balance;
+            if(i < NUM_PLAYER - 1) cout << ",";
+        }
+        cout << "],\"alive\":[";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            cout << (bot[i].alive ? "true" : "false");
+            if(i < NUM_PLAYER - 1) cout << ",";
+        }
+        cout << "],\"rounds\":" << last_round << "}" << endl;
+        
+        if(!replay_output_path.empty()){
+            save_replay(replay_output_path);
+        }
     }
-    
-    char cur_time[32];
-    strftime(cur_time, sizeof(cur_time), "%d-%H%M%S", localtime(&now));
+    else{
+        struct stat st;
+        if(stat("replays", &st) != 0){
+            mkdir("replays", 0775);
+        }
+        
+        char cur_time[32];
+        strftime(cur_time, sizeof(cur_time), "%d-%H%M%S", localtime(&now));
 
-    string bot_names = "";
-    for(int i = 0; i < NUM_PLAYER; i++){
-        string path = game_replay.bot_paths[i];
-        size_t pos = path.rfind('/');
-        string name = (pos != string::npos) ? path.substr(pos + 1) : path;
+        string bot_names = "";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            string path = game_replay.bot_paths[i];
+            size_t pos = path.rfind('/');
+            string name = (pos != string::npos) ? path.substr(pos + 1) : path;
 
-        if(name.substr(0, 2) == "./") name = name.substr(2);
-        bot_names += name;
-        if(i < NUM_PLAYER - 1) bot_names += "-";
+            if(name.substr(0, 2) == "./") name = name.substr(2);
+            bot_names += name;
+            if(i < NUM_PLAYER - 1) bot_names += "-";
+        }
+        
+        string replay_file = "replays/game-" + string(cur_time) + "-" + bot_names + ".json";
+        save_replay(replay_file);
+        cout << "\nReplay saved to: " << replay_file << "\n";
     }
-    
-    string replay_file = "replays/game-" + string(cur_time) + "-" + bot_names + ".json";
-    
-    save_replay(replay_file);
-    cout << "\nReplay saved to: " << replay_file << "\n";
-    
-    save_replay("replays/latest.json");
-    cout << "Also saved to: replays/latest.json\n";
     
     return 0;
 }
-    

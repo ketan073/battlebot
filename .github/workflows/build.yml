@@ -18,16 +18,17 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev zenity libwayland-dev wayland-protocols libxkbcommon-dev
     
-    - name: Build engine
+    - name: Build engine and sample bot
       run: make
     
-    - name: Test run engine
+    - name: Build tournament
+      run: make tournament
+    
+    - name: Test engine
       run: ./engine ./sample_bot ./sample_bot ./sample_bot ./sample_bot ./sample_bot
     
     - name: Build viewer
       run: |
         cd viewer
-        mkdir -p build
-        cd build
-        cmake ..
-        make
+        cmake -B build
+        cmake --build build

@@ -1,6 +1,7 @@
 # Binaries
 engine
 sample_bot
+tournament
 *.o
 *.out
 
@@ -18,6 +19,7 @@ viewer/build/
 viewer/CMakeFiles/
 viewer/cmake_install.cmake
 viewer/CMakeCache.txt
+viewer/.cache
 
 # ImGui
 imgui.ini

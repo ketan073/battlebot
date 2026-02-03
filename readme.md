@@ -8,7 +8,7 @@ A 20-round survival game where 5 bots compete for water through sealed-bid aucti
 
 ```bash
 make
-make run
+make run-engine
 ```
 
 Or compile manually:
@@ -32,9 +32,19 @@ g++ -std=c++17 -O2 -o sample_bot sample_bot.cpp
 ./engine ./bot1 ./bot2 ./bot3 ./bot4 ./bot5
 ```
 
+## Tournament System
+
+Run a round-robin tournament with dynamic ELO tracking across all bot combinations.
+
+```bash
+make tournament                               # First time: builds tournament binary
+./tournament ./bot1 ./bot2 ./bot3 ./bot4 ./bot5
+./tournament --verbose ./bot1 ./bot2 ...      # Save all game replays
+```
+
 ## Replay Viewer
 
-Visualize game replays with charts, player stats, and timeline controls.
+Visualize game replays with charts, player stats, and timeline controls. Now includes **tournament result viewer** with ELO ratings.
 
 **Build and run viewer:**
 ```bash
@@ -47,7 +57,16 @@ Or run directly:
 ./viewer/build/viewer
 ```
 
-Click the "Load Replay" button to open a file dialog and select any `.json` replay file.
+**Viewer Features:**
+- **Replay Mode**: Individual game visualization with health/balance charts, round-by-round navigation
+- **Tournament Mode**: 
+  - ELO rating history graph with interactive timeline
+  - Rankings table with win rates and top-2/top-3 finishes
+  - Statistics table with survival rate, dominance, and averages
+  - Snapshot table showing rank/ELO delta/momentum at any game point
+  - Head-to-head win/loss matrix between all bots
+- Switch between modes with tabs at top
+- Load files via "Load Replay" or "Load Tournament" buttons
 
 **Requirements:** `zenity` (usually pre-installed on Ubuntu/Debian). If missing: `sudo apt install zenity`
 
