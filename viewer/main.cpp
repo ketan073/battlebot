@@ -1,10 +1,18 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <map>
+#include <algorithm>
+#include <cstring>
+#include <cstdio>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "implot.h"
 #include <GLFW/glfw3.h>
 #include <nlohmann/json.hpp>
+#include <nfd.h>
 
 using json = nlohmann::json;
 
@@ -108,24 +116,23 @@ ImVec4 get_bot_color(int bot_id) {
 }
 
 std::string open_file_dialog(){
-    FILE* f = popen("zenity --file-selection --title='Select Replay File' --file-filter='JSON files (*.json) | *.json' --file-filter='All files | *'", "r");
-    if(!f){
-        std::cerr << "Failed to open file dialog\n";
+    nfdchar_t *outPath = nullptr;
+    nfdfilteritem_t filterItem[1] = { { "JSON files", "json" } };
+    
+    nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, 1, nullptr);
+    
+    if(result == NFD_OKAY){
+        std::string path(outPath);
+        NFD_FreePath(outPath);
+        return path;
+    }
+    else if(result == NFD_CANCEL){
         return "";
     }
-    
-    char path[1024];
-    if(fgets(path, sizeof(path), f) != nullptr){
-        size_t len = strlen(path);
-        if(len > 0 && path[len - 1] == '\n'){
-            path[len - 1] = '\0';
-        }
-        pclose(f);
-        return std::string(path);
+    else{
+        std::cerr << "File dialog error: " << NFD_GetError() << std::endl;
+        return "";
     }
-    
-    pclose(f);
-    return "";
 }
 
 bool load_replay(const std::string& filename){
@@ -1059,10 +1066,21 @@ int main(){
 
     glfwSetErrorCallback(glfw_error_callback);
     if(!glfwInit()) return 1;
+    
+    NFD_Init();
 
+    // GL context setup - macOS requires 3.2 Core Profile
+#if defined(__APPLE__)
+    const char* glsl_version = "#version 150";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#else
     const char* glsl_version = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+#endif
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
@@ -1155,6 +1173,7 @@ int main(){
     
     glfwDestroyWindow(window);
     glfwTerminate();
+    NFD_Quit();
     
     return 0;
 }

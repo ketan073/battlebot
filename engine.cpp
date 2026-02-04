@@ -1,4 +1,13 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <random>
+#include <iomanip>
+#include <ctime>
+#include <cstring>
+#include <stdexcept>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>

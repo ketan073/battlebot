@@ -35,7 +35,13 @@ FetchContent_Declare(
     GIT_TAG v3.11.3
 )
 
-FetchContent_MakeAvailable(glfw json)
+FetchContent_Declare(
+    nfd
+    GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
+    GIT_TAG v1.2.1
+)
+
+FetchContent_MakeAvailable(glfw json nfd)
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
     FetchContent_Populate(imgui)
@@ -78,6 +84,7 @@ target_include_directories(viewer PRIVATE
 target_link_libraries(viewer PRIVATE
     glfw
     nlohmann_json::nlohmann_json
+    nfd
     ${CMAKE_DL_LIBS}
 )
 

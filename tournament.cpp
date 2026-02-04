@@ -1,4 +1,15 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <map>
+#include <algorithm>
+#include <numeric>
+#include <cmath>
+#include <iomanip>
+#include <ctime>
+#include <cstdio>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>

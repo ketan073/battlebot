@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
     
     steps:
@@ -16,7 +16,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev zenity libwayland-dev wayland-protocols libxkbcommon-dev
+        sudo apt-get install -y build-essential cmake git libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgtk-3-dev libwayland-dev wayland-protocols libxkbcommon-dev
     
     - name: Build engine and sample bot
       run: make
@@ -28,7 +28,23 @@ jobs:
       run: ./engine ./sample_bot ./sample_bot ./sample_bot ./sample_bot ./sample_bot
     
     - name: Build viewer
-      run: |
-        cd viewer
-        cmake -B build
-        cmake --build build
+      run: make viewer
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build engine and sample bot
+      run: make
+    
+    - name: Build tournament
+      run: make tournament
+    
+    - name: Test engine
+      run: ./engine ./sample_bot ./sample_bot ./sample_bot ./sample_bot ./sample_bot
+    
+    - name: Build viewer
+      run: make viewer
+
