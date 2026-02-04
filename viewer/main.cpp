@@ -642,7 +642,7 @@ void render_tournament_result(){
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(%d games)", g_tournament.total_games);
     ImGui::Separator();
     
-    if(ImGui::BeginTable("Rankings", 8, 
+    if(ImGui::BeginTable("Rankings", 7, 
         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | 
         ImGuiTableFlags_SizingStretchProp)){
         
@@ -650,8 +650,7 @@ void render_tournament_result(){
         ImGui::TableSetupColumn("ID", 0, 0.3f);
         ImGui::TableSetupColumn("Bot", 0, 1.2f);
         ImGui::TableSetupColumn("ELO", 0, 0.6f);
-        ImGui::TableSetupColumn("Wins", 0, 0.4f);
-        ImGui::TableSetupColumn("Win%", 0, 0.5f);
+        ImGui::TableSetupColumn("Wins", 0, 0.9f);
         ImGui::TableSetupColumn("Top2", 0, 0.7f);
         ImGui::TableSetupColumn("Top3", 0, 0.7f);
         ImGui::TableHeadersRow();
@@ -688,10 +687,7 @@ void render_tournament_result(){
             ImGui::Text("%.1f", bot.elo);
             
             ImGui::TableNextColumn();
-            ImGui::Text("%d", bot.wins);
-            
-            ImGui::TableNextColumn();
-            ImGui::Text("%.1f%%", bot.win_rate);
+            ImGui::Text("%d (%.0f%%)", bot.wins, bot.win_rate);
             
             ImGui::TableNextColumn();
             double top2_pct = bot.games_played > 0 ? (100.0 * bot.top2_finishes / bot.games_played) : 0.0;
@@ -712,16 +708,15 @@ void render_tournament_result(){
     ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.2f, 1.0f), "STATISTICS");
     ImGui::Separator();
     
-    if(ImGui::BeginTable("Stats", 8, 
+    if(ImGui::BeginTable("Stats", 7, 
         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | 
         ImGuiTableFlags_SizingStretchProp)){
         
         ImGui::TableSetupColumn("Bot", 0, 1.0f);
         ImGui::TableSetupColumn("<Pos>", 0, 0.4f);
-        ImGui::TableSetupColumn("Surv%", 0, 0.45f);
         ImGui::TableSetupColumn("ELO D", 0, 0.45f);
         ImGui::TableSetupColumn("<Dom>", 0, 0.45f);
-        ImGui::TableSetupColumn("Rounds", 0, 0.45f);
+        ImGui::TableSetupColumn("Rounds", 0, 0.8f);
         ImGui::TableSetupColumn("<HP>", 0, 0.5f);
         ImGui::TableSetupColumn("<$>", 0, 0.5f);
         ImGui::TableHeadersRow();
@@ -737,9 +732,6 @@ void render_tournament_result(){
             ImGui::Text("%.1f", bot.avg_position);
             
             ImGui::TableNextColumn();
-            ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "%.0f%%", bot.survival_rate);
-            
-            ImGui::TableNextColumn();
             if(bot.elo_change >= 0) {
                 ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "+%.0f", bot.elo_change);
             } else {
@@ -750,7 +742,7 @@ void render_tournament_result(){
             ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%.1f", bot.avg_dominance);
             
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f", bot.avg_rounds_survived);
+            ImGui::Text("%.1f (%.0f%%)", bot.avg_rounds_survived, bot.survival_rate);
             
             ImGui::TableNextColumn();
             ImGui::Text("%.1f", bot.avg_final_health);
@@ -872,7 +864,7 @@ void render_tournament_result(){
             ImGui::TableSetupColumn("Bot", 0, 1.2f);
             ImGui::TableSetupColumn("ELO", 0, 0.6f);
             ImGui::TableSetupColumn("ELO D", 0, 0.6f);
-            ImGui::TableSetupColumn("Moment", 0, 0.7f);
+            ImGui::TableSetupColumn("Momentum", 0, 0.7f);
             ImGui::TableHeadersRow();
             
             struct BotSnapshot {

@@ -64,6 +64,13 @@ make tournament                               # First time: builds tournament bi
 ./tournament --verbose ./bot1 ./bot2 ...      # Save all game replays
 ```
 
+**Ranking Criteria (per game):**
+1. Alive bots rank higher than eliminated bots
+2. Eliminated bots: later death round = better rank (survived longer)
+3. Tie-breaker: higher health (or less negative for eliminated)
+4. Tie-breaker: higher balance
+5. Final tie-breaker: lower player ID
+
 ## Replay Viewer
 
 Visualize game replays with charts, player stats, and timeline controls. Includes **tournament result viewer** with ELO ratings.

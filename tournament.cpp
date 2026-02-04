@@ -59,6 +59,7 @@ struct GameResult {
     vector<int> rankings;
     vector<int> health;
     vector<int> balance;
+    vector<int> death_round;
     vector<int> rounds_survived;
     string replay_file;
 };
@@ -213,11 +214,30 @@ GameResult run_game(const vector<string>& bot_unique_keys, const vector<string>&
         rounds_stream >> rounds_played;
     }
     
+    size_t death_pos = output.find("\"death_round\":[");
+    if(death_pos != string::npos) {
+        size_t death_start = output.find('[', death_pos);
+        size_t death_end = output.find(']', death_start);
+        string death_str = output.substr(death_start + 1, death_end - death_start - 1);
+        
+        istringstream death_stream(death_str);
+        int d;
+        for(int i = 0; i < PLAYERS_PER_GAME; i++) {
+            if(i > 0) death_stream >> comma;
+            death_stream >> d;
+            result.death_round.push_back(d);
+        }
+    } else {
+        for(int i = 0; i < PLAYERS_PER_GAME; i++) {
+            result.death_round.push_back(result.health[i] > 0 ? 0 : rounds_played / 2);
+        }
+    }
+    
     for(int i = 0; i < PLAYERS_PER_GAME; i++) {
-        if(result.health[i] > 0) {
+        if(result.death_round[i] == 0) {
             result.rounds_survived.push_back(rounds_played);
         } else {
-            result.rounds_survived.push_back(rounds_played / 2);
+            result.rounds_survived.push_back(result.death_round[i]);
         }
     }
     
@@ -229,8 +249,16 @@ GameResult run_game(const vector<string>& bot_unique_keys, const vector<string>&
         bool b_alive = (result.health[b] > 0);
         
         if(a_alive != b_alive) return a_alive > b_alive;
+        
+        if(!a_alive && !b_alive) {
+            if(result.death_round[a] != result.death_round[b]) {
+                return result.death_round[a] > result.death_round[b];
+            }
+        }
+        
         if(result.health[a] != result.health[b]) return result.health[a] > result.health[b];
-        return result.balance[a] > result.balance[b];
+        if(result.balance[a] != result.balance[b]) return result.balance[a] > result.balance[b];
+        return a < b;
     });
     
     result.rankings = order;

@@ -34,6 +34,7 @@ struct Player {
     int health;
     int balance;
     int no_water_days;
+    int death_round;
 
     bool alive;
     int prev_bid;
@@ -99,6 +100,7 @@ void init_bots(){
             bot[i].health = INIT_HEALTH;
             bot[i].balance = SALARY[i];
             bot[i].no_water_days = 0;
+            bot[i].death_round = 0;
 
             bot[i].alive = true;
             bot[i].prev_bid = 0;
@@ -342,11 +344,12 @@ vector<BidResult> run_auction(int water_supply){
     return results;
 }
 
-void check_eliminations(){
+void check_eliminations(int round){
     for(int i = 0; i < NUM_PLAYER; i++){
         if(bot[i].alive && bot[i].health <= 0){
             bot[i].alive = false;
             bot[i].balance = 0;
+            bot[i].death_round = round;
             
             if(bot[i].pid > 0){
                 kill(bot[i].pid, SIGKILL);
@@ -355,11 +358,11 @@ void check_eliminations(){
             }
             
             if(!g_tourney_mode){
-                cout << ">>> Bot: " << bot[i].id << " (" << bot[i].name << ") has been ELIMINATED\n";
+                cout << ">>> Bot: " << bot[i].id << " (" << bot[i].name << ") has been ELIMINATED in round " << round << "\n";
                 cout.flush();
             }
 
-            game_replay.log.push_back(">>> " + bot[i].name + " has been ELIMINATED");
+            game_replay.log.push_back(">>> " + bot[i].name + " has been ELIMINATED in round " + to_string(round));
         }
     }
 }
@@ -641,7 +644,7 @@ int main(int argc, char* argv[]){
             print_round_summary(round, water_supply, results);
         }
         
-        check_eliminations();
+        check_eliminations(round);
     }
 
     if(!tourney_mode){
@@ -665,6 +668,11 @@ int main(int argc, char* argv[]){
         cout << "],\"alive\":[";
         for(int i = 0; i < NUM_PLAYER; i++){
             cout << (bot[i].alive ? "true" : "false");
+            if(i < NUM_PLAYER - 1) cout << ",";
+        }
+        cout << "],\"death_round\":[";
+        for(int i = 0; i < NUM_PLAYER; i++){
+            cout << bot[i].death_round;
             if(i < NUM_PLAYER - 1) cout << ",";
         }
         cout << "],\"rounds\":" << last_round << "}" << endl;

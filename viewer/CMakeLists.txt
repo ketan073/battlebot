@@ -41,16 +41,7 @@ FetchContent_Declare(
     GIT_TAG v1.2.1
 )
 
-FetchContent_MakeAvailable(glfw json nfd)
-FetchContent_GetProperties(imgui)
-if(NOT imgui_POPULATED)
-    FetchContent_Populate(imgui)
-endif()
-
-FetchContent_GetProperties(implot)
-if(NOT implot_POPULATED)
-    FetchContent_Populate(implot)
-endif()
+FetchContent_MakeAvailable(glfw json nfd imgui implot)
 
 # ImGui sources
 set(IMGUI_SOURCES
