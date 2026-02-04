@@ -197,6 +197,30 @@ void init_water_supply(){
     for(int i = 0; i < NUM_ROUND; i++){
         water_supply[i] = dist(rng);
     }
+    // Data used in checkpoint_1
+    // water_supply[0] = 49;
+    // water_supply[1] = 30;
+    // water_supply[2] = 34;
+    // water_supply[3] = 49;
+    // water_supply[4] = 10;
+
+    // water_supply[5] = 0;
+    // water_supply[6] = 40;
+    // water_supply[7] = 25;
+    // water_supply[8] = 33;
+    // water_supply[9] = 34;
+
+    // water_supply[10] = 22;
+    // water_supply[11] = 27;
+    // water_supply[12] = 11;
+    // water_supply[13] = 29;
+    // water_supply[14] = 40;
+
+    // water_supply[15] = 32;
+    // water_supply[16] = 22;
+    // water_supply[17] = 28;
+    // water_supply[18] = 25;
+    // water_supply[19] = 20;
 }
 
 int gen_water_supply(int round){

@@ -26,7 +26,7 @@ run-viewer: viewer
 	./viewer/build/viewer
 
 clean:
-	rm -f engine sample_bot tournament
+	rm -f engine sample_bot tournament team*
 
 distclean: clean
 	rm -rf viewer/build
