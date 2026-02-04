@@ -12,6 +12,11 @@ sudo apt update
 sudo apt install build-essential cmake git libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgtk-3-dev
 ```
 
+**Linux (Arch/Manjaro):**
+```bash
+sudo pacman -S base-devel cmake git mesa libx11 libxrandr libxinerama libxcursor libxi gtk3
+```
+
 **macOS:**
 ```bash
 xcode-select --install
