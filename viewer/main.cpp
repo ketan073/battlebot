@@ -648,7 +648,7 @@ void render_tournament_result(){
         
         ImGui::TableSetupColumn("Rank", 0, 0.4f);
         ImGui::TableSetupColumn("ID", 0, 0.3f);
-        ImGui::TableSetupColumn("Bot", 0, 1.2f);
+        ImGui::TableSetupColumn("Bot", 0, 1.0f);
         ImGui::TableSetupColumn("ELO", 0, 0.6f);
         ImGui::TableSetupColumn("Wins", 0, 0.9f);
         ImGui::TableSetupColumn("Top2", 0, 0.7f);
@@ -708,17 +708,19 @@ void render_tournament_result(){
     ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.2f, 1.0f), "STATISTICS");
     ImGui::Separator();
     
-    if(ImGui::BeginTable("Stats", 7, 
+    if(ImGui::BeginTable("Stats", 9, 
         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | 
         ImGuiTableFlags_SizingStretchProp)){
         
-        ImGui::TableSetupColumn("Bot", 0, 1.0f);
+        ImGui::TableSetupColumn("Bot", 0, 0.8f);
         ImGui::TableSetupColumn("<Pos>", 0, 0.4f);
         ImGui::TableSetupColumn("ELO D", 0, 0.45f);
         ImGui::TableSetupColumn("<Dom>", 0, 0.45f);
-        ImGui::TableSetupColumn("Rounds", 0, 0.8f);
-        ImGui::TableSetupColumn("<HP>", 0, 0.5f);
-        ImGui::TableSetupColumn("<$>", 0, 0.5f);
+        ImGui::TableSetupColumn("<Rounds Surv>", 0, 0.8f);
+        ImGui::TableSetupColumn("<Surv%>", 0, 0.5f);
+        ImGui::TableSetupColumn("<Elim%>", 0, 0.5f);
+        ImGui::TableSetupColumn("<HP>", 0, 0.4f);
+        ImGui::TableSetupColumn("<$>", 0, 0.4f);
         ImGui::TableHeadersRow();
         
         for(const auto& bot : g_tournament.bots){
@@ -742,7 +744,25 @@ void render_tournament_result(){
             ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%.1f", bot.avg_dominance);
             
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f (%.0f%%)", bot.avg_rounds_survived, bot.survival_rate);
+            ImGui::Text("%.1f", bot.avg_rounds_survived);
+            
+            ImGui::TableNextColumn();
+            if(bot.survival_rate >= 70.0) {
+                ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "%.0f%%", bot.survival_rate);
+            } else if(bot.survival_rate >= 40.0) {
+                ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.1f, 1.0f), "%.0f%%", bot.survival_rate);
+            } else {
+                ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "%.0f%%", bot.survival_rate);
+            }
+            
+            ImGui::TableNextColumn();
+            if(bot.elimination_rate <= 30.0) {
+                ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "%.0f%%", bot.elimination_rate);
+            } else if(bot.elimination_rate <= 60.0) {
+                ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.1f, 1.0f), "%.0f%%", bot.elimination_rate);
+            } else {
+                ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "%.0f%%", bot.elimination_rate);
+            }
             
             ImGui::TableNextColumn();
             ImGui::Text("%.1f", bot.avg_final_health);
@@ -861,7 +881,7 @@ void render_tournament_result(){
             ImGuiTableFlags_SizingStretchProp)){
             
             ImGui::TableSetupColumn("Rank", 0, 0.4f);
-            ImGui::TableSetupColumn("Bot", 0, 1.2f);
+            ImGui::TableSetupColumn("Bot", 0, 0.7f);
             ImGui::TableSetupColumn("ELO", 0, 0.6f);
             ImGui::TableSetupColumn("ELO D", 0, 0.6f);
             ImGui::TableSetupColumn("Momentum", 0, 0.7f);
@@ -892,7 +912,6 @@ void render_tournament_result(){
                         if(i > 0) prev_elo = bot.elo_history[i-1].second;
                         snap.elo = bot.elo_history[i].second;
                         recent_elos.push_back(bot.elo_history[i].second);
-                        if(recent_elos.size() > 10) recent_elos.erase(recent_elos.begin());
                     } else {
                         break;
                     }
@@ -900,16 +919,29 @@ void render_tournament_result(){
                 
                 snap.elo_delta = snap.elo - prev_elo;
                 
+                const size_t MOMENTUM_LOOKBACK = 5;
                 if(recent_elos.size() >= 2) {
-                    double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
-                    for(size_t i = 0; i < recent_elos.size(); i++) {
-                        sum_x += i;
-                        sum_y += recent_elos[i];
-                        sum_xy += i * recent_elos[i];
-                        sum_xx += i * i;
+                    std::vector<double> momentum_window;
+                    size_t start_idx = recent_elos.size() > MOMENTUM_LOOKBACK ? 
+                                       recent_elos.size() - MOMENTUM_LOOKBACK : 0;
+                    for(size_t j = start_idx; j < recent_elos.size(); j++) {
+                        momentum_window.push_back(recent_elos[j]);
                     }
-                    int n = recent_elos.size();
-                    snap.momentum = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+                    
+                    if(momentum_window.size() >= 2) {
+                        double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+                        for(size_t j = 0; j < momentum_window.size(); j++) {
+                            sum_x += j;
+                            sum_y += momentum_window[j];
+                            sum_xy += j * momentum_window[j];
+                            sum_xx += j * j;
+                        }
+                        int n = momentum_window.size();
+                        double denominator = n * sum_xx - sum_x * sum_x;
+                        if(denominator != 0) {
+                            snap.momentum = (n * sum_xy - sum_x * sum_y) / denominator;
+                        }
+                    }
                 }
                 
                 snapshots.push_back(snap);
