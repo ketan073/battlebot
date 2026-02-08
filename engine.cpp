@@ -78,7 +78,8 @@ bool cmp_bid(const BidResult& a, const BidResult& b){
 
 bool cmp_survivor(const int a, const int b){
     if(bot[a].health != bot[b].health) return bot[a].health > bot[b].health;
-    return bot[a].balance > bot[b].balance;
+    if(bot[a].balance != bot[b].balance) return bot[a].balance > bot[b].balance;
+    return false;
 }
 
 void clean_bots(){
@@ -191,12 +192,12 @@ int aliveCnt(){
 vector<int> water_supply(NUM_ROUND);
 
 void init_water_supply(){
-    int LOWER = 10;
-    int UPPER = 30;
-    uniform_int_distribution<int> dist(LOWER, UPPER);
-    for(int i = 0; i < NUM_ROUND; i++){
-        water_supply[i] = dist(rng);
-    }
+    // int LOWER = 10;
+    // int UPPER = 30;
+    // uniform_int_distribution<int> dist(LOWER, UPPER);
+    // for(int i = 0; i < NUM_ROUND; i++){
+    //     water_supply[i] = dist(rng);
+    // }
     // Data used in checkpoint_1
     // water_supply[0] = 49;
     // water_supply[1] = 30;
@@ -221,6 +222,31 @@ void init_water_supply(){
     // water_supply[17] = 28;
     // water_supply[18] = 25;
     // water_supply[19] = 20;
+
+    // Data used in checkpoint_2
+    water_supply[0] = 2;
+    water_supply[1] = 0;
+    water_supply[2] = 16;
+    water_supply[3] = 17;
+    water_supply[4] = 37;
+
+    water_supply[5] = 12;
+    water_supply[6] = 4;
+    water_supply[7] = 15;
+    water_supply[8] = 31;
+    water_supply[9] = 4;
+
+    water_supply[10] = 12;
+    water_supply[11] = 30;
+    water_supply[12] = 5;
+    water_supply[13] = 13;
+    water_supply[14] = 25;
+
+    water_supply[15] = 12;
+    water_supply[16] = 2;
+    water_supply[17] = 45;
+    water_supply[18] = 6;
+    water_supply[19] = 73;
 }
 
 int gen_water_supply(int round){
@@ -372,7 +398,6 @@ void check_eliminations(int round){
     for(int i = 0; i < NUM_PLAYER; i++){
         if(bot[i].alive && bot[i].health <= 0){
             bot[i].alive = false;
-            bot[i].balance = 0;
             bot[i].death_round = round;
             
             if(bot[i].pid > 0){

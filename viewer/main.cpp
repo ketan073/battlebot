@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <dirent.h>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -59,7 +60,8 @@ struct TournamentBot {
     int id;
     std::string name;
     std::string path;
-    double elo;
+    int total_points;
+    double avg_points_per_game;
     int games_played;
     int wins;
     double win_rate;
@@ -71,9 +73,8 @@ struct TournamentBot {
     double elimination_rate;
     double survival_rate;
     double avg_position;
-    double elo_change;
     double avg_dominance;
-    std::vector<std::pair<int, double>> elo_history;
+    std::vector<std::pair<int, int>> points_history;
     std::map<int, std::map<int, std::pair<int, int>>> head_to_head_history;
 };
 
@@ -81,6 +82,35 @@ struct TournamentResults {
     int total_games;
     std::string timestamp;
     std::vector<TournamentBot> bots;
+};
+
+struct CharacterPerformance {
+    std::string character;
+    int games_played;
+    int total_points;
+    double avg_points;
+    int wins;
+    double win_rate;
+    int top2_finishes;
+    int top3_finishes;
+    double avg_rounds_survived;
+    double avg_final_health;
+    double avg_final_balance;
+    double elimination_rate;
+    double survival_rate;
+};
+
+struct BotStatistics {
+    std::string bot_name;
+    std::string bot_path;
+    int bot_id;
+    int rank;
+    int total_points;
+    int games_played;
+    int wins;
+    double avg_points_per_game;
+    double win_rate;
+    std::vector<CharacterPerformance> character_performance;
 };
 
 Replay g_replay;
@@ -91,9 +121,15 @@ TournamentResults g_tournament;
 bool g_tournament_loaded = false;
 int g_selected_game = -1;
 
+std::vector<BotStatistics> g_bot_stats;
+bool g_bot_stats_loaded = false;
+int g_selected_bot_idx = 0;
+std::string g_bot_stats_folder = "";
+
 enum ViewMode {
     VIEW_REPLAY,
-    VIEW_TOURNAMENT
+    VIEW_TOURNAMENT,
+    VIEW_BOT_DETAILS
 };
 ViewMode g_view_mode = VIEW_REPLAY;
 
@@ -204,7 +240,8 @@ bool load_tournament_result(const std::string& filename){
             bot.id = jb["id"];
             bot.name = jb["name"];
             bot.path = jb["path"];
-            bot.elo = jb["elo"];
+            bot.total_points = jb.value("total_points", 0);
+            bot.avg_points_per_game = jb.value("avg_points_per_game", 0.0);
             bot.games_played = jb["games_played"];
             bot.wins = jb["wins"];
             bot.win_rate = jb["win_rate"];
@@ -218,14 +255,13 @@ bool load_tournament_result(const std::string& filename){
             bot.elimination_rate = jb.value("elimination_rate", 0.0);
             bot.survival_rate = jb.value("survival_rate", 0.0);
             bot.avg_position = jb.value("avg_position", 0.0);
-            bot.elo_change = jb.value("elo_change", 0.0);
             bot.avg_dominance = jb.value("avg_dominance", 0.0);
             
-            if(jb.contains("elo_history")) {
-                for(auto& eh : jb["elo_history"]) {
-                    int game = eh["game"];
-                    double elo = eh["elo"];
-                    bot.elo_history.push_back({game, elo});
+            if(jb.contains("points_history")) {
+                for(auto& ph : jb["points_history"]) {
+                    int game = ph["game"];
+                    int points = ph["points"];
+                    bot.points_history.push_back({game, points});
                 }
             }
             
@@ -257,6 +293,85 @@ bool load_tournament_result(const std::string& filename){
         std::cerr << "JSON parse error: " << e.what() << std::endl;
         return false;
     }
+}
+
+bool load_bot_statistics_folder(const std::string& folder_path){
+    g_bot_stats.clear();
+    g_bot_stats_folder = folder_path;
+    
+    DIR* dir = opendir(folder_path.c_str());
+    if(!dir) {
+        std::cerr << "Could not open folder: " << folder_path << std::endl;
+        return false;
+    }
+    
+    struct dirent* entry;
+    int loaded_count = 0;
+    
+    while((entry = readdir(dir)) != nullptr) {
+        std::string filename = entry->d_name;
+        if(filename.find("_stats.json") != std::string::npos) {
+            std::string filepath = folder_path + "/" + filename;
+            std::ifstream file(filepath);
+            if(!file.is_open()) continue;
+            
+            try {
+                json j;
+                file >> j;
+                
+                BotStatistics bot;
+                bot.bot_name = j.value("bot_name", "");
+                bot.bot_path = j.value("bot_path", "");
+                bot.bot_id = j.value("bot_id", 0);
+                bot.rank = j.value("rank", 0);
+                bot.total_points = j.value("total_points", 0);
+                bot.games_played = j.value("games_played", 0);
+                bot.wins = j.value("wins", 0);
+                bot.avg_points_per_game = j.value("avg_points_per_game", 0.0);
+                bot.win_rate = j.value("win_rate", 0.0);
+                
+                if(j.contains("character_performance")) {
+                    for(auto& cp : j["character_performance"]) {
+                        CharacterPerformance perf;
+                        perf.character = cp.value("character", "");
+                        perf.games_played = cp.value("games_played", 0);
+                        perf.total_points = cp.value("total_points", 0);
+                        perf.avg_points = cp.value("avg_points", 0.0);
+                        perf.wins = cp.value("wins", 0);
+                        perf.win_rate = cp.value("win_rate", 0.0);
+                        perf.top2_finishes = cp.value("top2_finishes", 0);
+                        perf.top3_finishes = cp.value("top3_finishes", 0);
+                        perf.avg_rounds_survived = cp.value("avg_rounds_survived", 0.0);
+                        perf.avg_final_health = cp.value("avg_final_health", 0.0);
+                        perf.avg_final_balance = cp.value("avg_final_balance", 0.0);
+                        perf.elimination_rate = cp.value("elimination_rate", 0.0);
+                        perf.survival_rate = cp.value("survival_rate", 0.0);
+                        bot.character_performance.push_back(perf);
+                    }
+                }
+                
+                g_bot_stats.push_back(bot);
+                loaded_count++;
+            }
+            catch(const std::exception& e) {
+                std::cerr << "Error loading " << filename << ": " << e.what() << std::endl;
+            }
+        }
+    }
+    closedir(dir);
+    
+    if(loaded_count > 0) {
+        std::sort(g_bot_stats.begin(), g_bot_stats.end(), 
+            [](const BotStatistics& a, const BotStatistics& b) {
+                return a.bot_name < b.bot_name;
+            });
+        
+        std::cout << "Loaded " << loaded_count << " bot statistics files\n";
+        g_selected_bot_idx = 0;
+        return true;
+    }
+    
+    return false;
 }
 
 void draw_plot_vertical_line(float round_num, float y_max){
@@ -294,9 +409,14 @@ void render_header(){
     if(ImGui::Button("Tournament", ImVec2(tab_width, button_height))){
         g_view_mode = VIEW_TOURNAMENT;
     }
+    ImGui::SameLine(0, 2);
+    ImGui::SetCursorPosY(button_y);
+    if(ImGui::Button("Bot Details", ImVec2(tab_width, button_height))){
+        g_view_mode = VIEW_BOT_DETAILS;
+    }
     
     ImGui::SameLine();
-    ImGui::SetCursorPosX(400 * g_dpi_scale);
+    ImGui::SetCursorPosX(490 * g_dpi_scale);
     
     // Status display
     if(g_view_mode == VIEW_REPLAY){
@@ -370,13 +490,29 @@ void render_header(){
             }
         }
     }
-    else{
+    else if(g_view_mode == VIEW_TOURNAMENT){
         if(ImGui::Button("Load Tournament", ImVec2(btn_width, button_height))){
             std::string path = open_file_dialog();
             if(!path.empty()){
                 if(load_tournament_result(path)){
                     g_tournament_loaded = true;
                     std::cout << "Loaded: " << path << "\n";
+                }
+            }
+        }
+    }
+    else if(g_view_mode == VIEW_BOT_DETAILS){
+        if(ImGui::Button("Load Bot Stats", ImVec2(btn_width, button_height))){
+            std::string path = open_file_dialog();
+            if(!path.empty()){
+                // Extract folder path from the selected file
+                size_t last_slash = path.find_last_of("/\\");
+                if(last_slash != std::string::npos) {
+                    std::string folder = path.substr(0, last_slash);
+                    if(load_bot_statistics_folder(folder)){
+                        g_bot_stats_loaded = true;
+                        std::cout << "Loaded bot stats from: " << folder << "\n";
+                    }
                 }
             }
         }
@@ -618,6 +754,168 @@ void render_bidding_results(){
     ImGui::EndChild();
 }
 
+void render_bot_details(){
+    if(!g_bot_stats_loaded || g_bot_stats.empty()){
+        ImGui::BeginChild("NoBotStats", ImVec2(0, 0), true);
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No bot statistics loaded.");
+        ImGui::Text("Click 'Load Bot Stats' to load bot statistics from a bot_stats folder");
+        ImGui::EndChild();
+        return;
+    }
+    
+    const char* char_names[5] = {"Alex", "Bob", "Cindy", "David", "Eric"};
+    
+    // Bot selector
+    ImGui::BeginChild("BotSelector", ImVec2(0, 70 * g_dpi_scale), true);
+    ImGui::Text("Select Bot:");
+    ImGui::SameLine();
+    
+    if(g_selected_bot_idx < 0 || g_selected_bot_idx >= (int)g_bot_stats.size()) {
+        g_selected_bot_idx = 0;
+    }
+    
+    ImGui::SetNextItemWidth(400 * g_dpi_scale);
+    if(ImGui::BeginCombo("##BotSelect", g_bot_stats[g_selected_bot_idx].bot_name.c_str())){
+        for(int i = 0; i < (int)g_bot_stats.size(); i++){
+            bool is_selected = (i == g_selected_bot_idx);
+            if(ImGui::Selectable(g_bot_stats[i].bot_name.c_str(), is_selected)){
+                g_selected_bot_idx = i;
+            }
+            if(is_selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    
+    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Path: %s", g_bot_stats[g_selected_bot_idx].bot_path.c_str());
+    ImGui::EndChild();
+    
+    ImGui::Spacing();
+    
+    const BotStatistics& bot = g_bot_stats[g_selected_bot_idx];
+    
+    // Compute overall stats from character performance
+    int total_top2 = 0, total_top3 = 0;
+    double total_health = 0, total_balance = 0, total_rounds = 0;
+    int char_count = 0;
+    
+    for(const auto& perf : bot.character_performance) {
+        if(perf.games_played > 0) {
+            total_top2 += perf.top2_finishes;
+            total_top3 += perf.top3_finishes;
+            total_health += perf.avg_final_health;
+            total_balance += perf.avg_final_balance;
+            total_rounds += perf.avg_rounds_survived;
+            char_count++;
+        }
+    }
+    
+    double avg_health = (char_count > 0) ? total_health / char_count : 0;
+    double avg_balance = (char_count > 0) ? total_balance / char_count : 0;
+    double avg_rounds = (char_count > 0) ? total_rounds / char_count : 0;
+    
+    // Overall stats
+    ImGui::BeginChild("OverallStats", ImVec2(0, 120 * g_dpi_scale), true);
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Overall Statistics");
+    ImGui::Separator();
+    
+    ImGui::Text("Total Points: %d", bot.total_points);
+    ImGui::SameLine(300 * g_dpi_scale);
+    ImGui::Text("Games Played: %d", bot.games_played);
+    ImGui::SameLine(500 * g_dpi_scale);
+    ImGui::Text("Average Points/Game: %.2f", bot.avg_points_per_game);
+    
+    ImGui::Text("Wins: %d (%.1f%%)", bot.wins, bot.win_rate * 100);
+    ImGui::SameLine(300 * g_dpi_scale);
+    ImGui::Text("Top-2 Finishes: %d", total_top2);
+    ImGui::SameLine(500 * g_dpi_scale);
+    ImGui::Text("Top-3 Finishes: %d", total_top3);
+    
+    ImGui::Text("Avg Final Health: %.1f", avg_health);
+    ImGui::SameLine(300 * g_dpi_scale);
+    ImGui::Text("Avg Final Balance: %.1f", avg_balance);
+    ImGui::SameLine(500 * g_dpi_scale);
+    ImGui::Text("Avg Rounds Survived: %.1f", avg_rounds);
+    
+    ImGui::EndChild();
+    
+    ImGui::Spacing();
+    
+    // Character performance table
+    ImGui::BeginChild("CharacterStats", ImVec2(0, 0), true);
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Performance by Character");
+    ImGui::Separator();
+    
+    if(ImGui::BeginTable("CharStatsTable", 11, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)){
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, 80 * g_dpi_scale);
+        ImGui::TableSetupColumn("Games", ImGuiTableColumnFlags_WidthFixed, 60 * g_dpi_scale);
+        ImGui::TableSetupColumn("Pts", ImGuiTableColumnFlags_WidthFixed, 60 * g_dpi_scale);
+        ImGui::TableSetupColumn("PPG", ImGuiTableColumnFlags_WidthFixed, 60 * g_dpi_scale);
+        ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 60 * g_dpi_scale);
+        ImGui::TableSetupColumn("Top-2", ImGuiTableColumnFlags_WidthFixed, 60 * g_dpi_scale);
+        ImGui::TableSetupColumn("Top-3", ImGuiTableColumnFlags_WidthFixed, 60 * g_dpi_scale);
+        ImGui::TableSetupColumn("Avg Health", ImGuiTableColumnFlags_WidthFixed, 80 * g_dpi_scale);
+        ImGui::TableSetupColumn("Avg Balance", ImGuiTableColumnFlags_WidthFixed, 90 * g_dpi_scale);
+        ImGui::TableSetupColumn("Avg Rounds", ImGuiTableColumnFlags_WidthFixed, 90 * g_dpi_scale);
+        ImGui::TableSetupColumn("Elim% / Surv%", ImGuiTableColumnFlags_WidthFixed, 80 * g_dpi_scale);
+        ImGui::TableHeadersRow();
+        
+        for(int i = 0; i < 5; i++){
+            const CharacterPerformance& perf = bot.character_performance[i];
+            
+            if(perf.games_played == 0) continue;
+            
+            float ppg = (float)perf.total_points / perf.games_played;
+            
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextColored(get_bot_color(i + 1), "%s", char_names[i]);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", perf.games_played);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", perf.total_points);
+            
+            ImGui::TableNextColumn();
+            if(ppg >= 4.0f) {
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "%.2f", ppg);
+            } else if(ppg >= 3.0f) {
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.2f, 1.0f), "%.2f", ppg);
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%.2f", ppg);
+            }
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", perf.wins);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", perf.top2_finishes);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", perf.top3_finishes);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f", perf.avg_final_health);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f", perf.avg_final_balance);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f", perf.avg_rounds_survived);
+            
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f%% / %.1f%%", perf.elimination_rate, perf.survival_rate);
+        }
+        
+        ImGui::EndTable();
+    }
+    
+    ImGui::EndChild();
+}
+
 void render_tournament_result(){
     if(!g_tournament_loaded || g_tournament.bots.empty()){
         ImGui::BeginChild("NoTournamentData", ImVec2(0, 0), true);
@@ -649,7 +947,7 @@ void render_tournament_result(){
         ImGui::TableSetupColumn("Rank", 0, 0.4f);
         ImGui::TableSetupColumn("ID", 0, 0.3f);
         ImGui::TableSetupColumn("Bot", 0, 1.0f);
-        ImGui::TableSetupColumn("ELO", 0, 0.6f);
+        ImGui::TableSetupColumn("Points", 0, 0.6f);
         ImGui::TableSetupColumn("Wins", 0, 0.9f);
         ImGui::TableSetupColumn("Top2", 0, 0.7f);
         ImGui::TableSetupColumn("Top3", 0, 0.7f);
@@ -684,7 +982,7 @@ void render_tournament_result(){
             }
             
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f", bot.elo);
+            ImGui::Text("%d", bot.total_points);
             
             ImGui::TableNextColumn();
             ImGui::Text("%d (%.0f%%)", bot.wins, bot.win_rate);
@@ -714,7 +1012,7 @@ void render_tournament_result(){
         
         ImGui::TableSetupColumn("Bot", 0, 0.8f);
         ImGui::TableSetupColumn("<Pos>", 0, 0.4f);
-        ImGui::TableSetupColumn("ELO D", 0, 0.45f);
+        ImGui::TableSetupColumn("Avg PPG", 0, 0.5f);
         ImGui::TableSetupColumn("<Dom>", 0, 0.45f);
         ImGui::TableSetupColumn("<Rounds Surv>", 0, 0.8f);
         ImGui::TableSetupColumn("<Surv%>", 0, 0.5f);
@@ -734,10 +1032,12 @@ void render_tournament_result(){
             ImGui::Text("%.1f", bot.avg_position);
             
             ImGui::TableNextColumn();
-            if(bot.elo_change >= 0) {
-                ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "+%.0f", bot.elo_change);
+            if(bot.avg_points_per_game >= 4.0) {
+                ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "%.2f", bot.avg_points_per_game);
+            } else if(bot.avg_points_per_game >= 3.0) {
+                ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.1f, 1.0f), "%.2f", bot.avg_points_per_game);
             } else {
-                ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.0f), "%.0f", bot.elo_change);
+                ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "%.2f", bot.avg_points_per_game);
             }
             
             ImGui::TableNextColumn();
@@ -777,15 +1077,15 @@ void render_tournament_result(){
     
     ImGui::EndChild();
     
-    ImGui::BeginChild("ELOChartPanel", ImVec2(0, chart_height), true);
-    if(!g_tournament.bots.empty() && !g_tournament.bots[0].elo_history.empty()) {
+    ImGui::BeginChild("PointsChartPanel", ImVec2(0, chart_height), true);
+    if(!g_tournament.bots.empty() && !g_tournament.bots[0].points_history.empty()) {
         std::vector<int> valid_games;
         int max_game = 0;
-        double min_elo = 10000, max_elo = 0;
+        int min_points = 10000, max_points = 0;
         for(const auto& bot : g_tournament.bots) {
-            for(const auto& point : bot.elo_history) {
-                min_elo = std::min(min_elo, point.second);
-                max_elo = std::max(max_elo, point.second);
+            for(const auto& point : bot.points_history) {
+                min_points = std::min(min_points, point.second);
+                max_points = std::max(max_points, point.second);
                 max_game = std::max(max_game, point.first);
                 if(std::find(valid_games.begin(), valid_games.end(), point.first) == valid_games.end()) {
                     valid_games.push_back(point.first);
@@ -819,16 +1119,16 @@ void render_tournament_result(){
         g_selected_game = valid_games[selected_idx];
         
         float chart_height_remaining = ImGui::GetContentRegionAvail().y;
-        if(ImPlot::BeginPlot("ELO Rating Over Time", ImVec2(-1, chart_height_remaining))){
-            ImPlot::SetupAxes("Game #", "ELO");
+        if(ImPlot::BeginPlot("Total Points Over Time", ImVec2(-1, chart_height_remaining))){
+            ImPlot::SetupAxes("Game #", "Total Points");
             ImPlot::SetupAxisLimits(ImAxis_X1, 0, max_game + 5, ImGuiCond_Always);
-            ImPlot::SetupAxisLimits(ImAxis_Y1, min_elo - 30, max_elo + 30, ImGuiCond_Always);
+            ImPlot::SetupAxisLimits(ImAxis_Y1, min_points - 30, max_points + 30, ImGuiCond_Always);
             ImPlot::SetupLegend(ImPlotLocation_NorthWest);
             
             if(g_selected_game >= 0) {
                 ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(1.0f, 0.8f, 0.2f, 0.8f));
                 float vline_x[] = {(float)g_selected_game, (float)g_selected_game};
-                float vline_y[] = {(float)(min_elo - 30), (float)(max_elo + 30)};
+                float vline_y[] = {(float)(min_points - 30), (float)(max_points + 30)};
                 ImPlot::PlotLine("##vline", vline_x, vline_y, 2);
                 ImPlot::PopStyleColor();
             }
@@ -840,9 +1140,9 @@ void render_tournament_result(){
             
             for(size_t i = 0; i < sorted_bots.size(); i++) {
                 const auto& bot = sorted_bots[i];
-                if(!bot.elo_history.empty()) {
+                if(!bot.points_history.empty()) {
                     std::vector<double> x_data, y_data;
-                    for(const auto& point : bot.elo_history) {
+                    for(const auto& point : bot.points_history) {
                         x_data.push_back(point.first);
                         y_data.push_back(point.second);
                     }
@@ -861,13 +1161,13 @@ void render_tournament_result(){
             ImPlot::EndPlot();
         }
     } else {
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No ELO history data");
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No points history data");
     }
     ImGui::EndChild();
     
     ImGui::BeginChild("SnapshotPanel", ImVec2(0, snapshot_height), false);
     
-    if(!g_tournament.bots.empty() && !g_tournament.bots[0].elo_history.empty() && g_selected_game >= 0) {
+    if(!g_tournament.bots.empty() && !g_tournament.bots[0].points_history.empty() && g_selected_game >= 0) {
         float snapshot_table_width = ImGui::GetContentRegionAvail().x * 0.5f - 5;
         
         ImGui::BeginChild("SnapshotTable", ImVec2(snapshot_table_width, 0), true);
@@ -882,17 +1182,17 @@ void render_tournament_result(){
             
             ImGui::TableSetupColumn("Rank", 0, 0.4f);
             ImGui::TableSetupColumn("Bot", 0, 0.7f);
-            ImGui::TableSetupColumn("ELO", 0, 0.6f);
-            ImGui::TableSetupColumn("ELO D", 0, 0.6f);
-            ImGui::TableSetupColumn("Momentum", 0, 0.7f);
+            ImGui::TableSetupColumn("Points", 0, 0.6f);
+            ImGui::TableSetupColumn("Pts D", 0, 0.6f);
+            ImGui::TableSetupColumn("PPG Trend", 0, 0.7f);
             ImGui::TableHeadersRow();
             
             struct BotSnapshot {
                 int id;
                 std::string name;
-                double elo;
-                double elo_delta;
-                double momentum;
+                int points;
+                int points_delta;
+                double ppg_trend;
             };
             
             std::vector<BotSnapshot> snapshots;
@@ -900,46 +1200,47 @@ void render_tournament_result(){
                 BotSnapshot snap;
                 snap.id = bot.id;
                 snap.name = bot.name;
-                snap.elo = 1500.0;
-                snap.elo_delta = 0.0;
-                snap.momentum = 0.0;
+                snap.points = 0;
+                snap.points_delta = 0;
+                snap.ppg_trend = 0.0;
                 
-                double prev_elo = 1500.0;
-                std::vector<double> recent_elos;
+                int prev_points = 0;
+                std::vector<int> recent_points;
                 
-                for(size_t i = 0; i < bot.elo_history.size(); i++) {
-                    if(bot.elo_history[i].first <= g_selected_game) {
-                        if(i > 0) prev_elo = bot.elo_history[i-1].second;
-                        snap.elo = bot.elo_history[i].second;
-                        recent_elos.push_back(bot.elo_history[i].second);
+                for(size_t i = 0; i < bot.points_history.size(); i++) {
+                    if(bot.points_history[i].first <= g_selected_game) {
+                        if(i > 0) prev_points = bot.points_history[i-1].second;
+                        snap.points = bot.points_history[i].second;
+                        recent_points.push_back(bot.points_history[i].second);
                     } else {
                         break;
                     }
                 }
                 
-                snap.elo_delta = snap.elo - prev_elo;
+                snap.points_delta = snap.points - prev_points;
                 
-                const size_t MOMENTUM_LOOKBACK = 5;
-                if(recent_elos.size() >= 2) {
-                    std::vector<double> momentum_window;
-                    size_t start_idx = recent_elos.size() > MOMENTUM_LOOKBACK ? 
-                                       recent_elos.size() - MOMENTUM_LOOKBACK : 0;
-                    for(size_t j = start_idx; j < recent_elos.size(); j++) {
-                        momentum_window.push_back(recent_elos[j]);
+                // Calculate points per game trend over recent snapshots
+                const size_t TREND_LOOKBACK = 5;
+                if(recent_points.size() >= 2) {
+                    std::vector<double> ppg_window;
+                    size_t start_idx = recent_points.size() > TREND_LOOKBACK ? 
+                                       recent_points.size() - TREND_LOOKBACK : 0;
+                    for(size_t j = start_idx; j < recent_points.size(); j++) {
+                        ppg_window.push_back(recent_points[j]);
                     }
                     
-                    if(momentum_window.size() >= 2) {
+                    if(ppg_window.size() >= 2) {
                         double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
-                        for(size_t j = 0; j < momentum_window.size(); j++) {
+                        for(size_t j = 0; j < ppg_window.size(); j++) {
                             sum_x += j;
-                            sum_y += momentum_window[j];
-                            sum_xy += j * momentum_window[j];
+                            sum_y += ppg_window[j];
+                            sum_xy += j * ppg_window[j];
                             sum_xx += j * j;
                         }
-                        int n = momentum_window.size();
+                        int n = ppg_window.size();
                         double denominator = n * sum_xx - sum_x * sum_x;
                         if(denominator != 0) {
-                            snap.momentum = (n * sum_xy - sum_x * sum_y) / denominator;
+                            snap.ppg_trend = (n * sum_xy - sum_x * sum_y) / denominator;
                         }
                     }
                 }
@@ -948,7 +1249,7 @@ void render_tournament_result(){
             }
             
             std::sort(snapshots.begin(), snapshots.end(), [](const BotSnapshot& a, const BotSnapshot& b) {
-                return a.elo > b.elo;
+                return a.points > b.points;
             });
             
             for(size_t i = 0; i < snapshots.size(); i++) {
@@ -970,24 +1271,24 @@ void render_tournament_result(){
                 ImGui::TextColored(bot_color, "%s", snapshots[i].name.c_str());
                 
                 ImGui::TableNextColumn();
-                ImGui::Text("%.1f", snapshots[i].elo);
+                ImGui::Text("%d", snapshots[i].points);
                 
                 ImGui::TableNextColumn();
-                if(snapshots[i].elo_delta > 0) {
-                    ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "+%.1f", snapshots[i].elo_delta);
-                } else if(snapshots[i].elo_delta < 0) {
-                    ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.0f), "%.1f", snapshots[i].elo_delta);
+                if(snapshots[i].points_delta > 0) {
+                    ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "+%d", snapshots[i].points_delta);
+                } else if(snapshots[i].points_delta < 0) {
+                    ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.0f), "%d", snapshots[i].points_delta);
                 } else {
-                    ImGui::Text("%.1f", snapshots[i].elo_delta);
+                    ImGui::Text("%d", snapshots[i].points_delta);
                 }
                 
                 ImGui::TableNextColumn();
-                if(snapshots[i].momentum > 0.5) {
-                    ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "UP %.1f", snapshots[i].momentum);
-                } else if(snapshots[i].momentum < -0.5) {
-                    ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "DN %.1f", snapshots[i].momentum);
+                if(snapshots[i].ppg_trend > 0.5) {
+                    ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "UP %.1f", snapshots[i].ppg_trend);
+                } else if(snapshots[i].ppg_trend < -0.5) {
+                    ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "DN %.1f", snapshots[i].ppg_trend);
                 } else {
-                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "-- %.1f", snapshots[i].momentum);
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "-- %.1f", snapshots[i].ppg_trend);
                 }
             }
             
@@ -1173,6 +1474,9 @@ int main(){
         }
         else if(g_view_mode == VIEW_TOURNAMENT){
             render_tournament_result();
+        }
+        else if(g_view_mode == VIEW_BOT_DETAILS){
+            render_bot_details();
         }
         
         ImGui::EndChild();

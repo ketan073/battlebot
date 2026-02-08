@@ -17,17 +17,39 @@
 using namespace std;
 
 const int PLAYERS_PER_GAME = 5;
-const double INITIAL_ELO = 1500.0;
-const double K_FACTOR = 32.0;
+const int PLACEMENT_POINTS[5] = {5, 4, 3, 2, 1};
+const string PLAYER_NAMES[5] = {"Alex", "Bob", "Cindy", "David", "Eric"};
 
 bool g_verbose = false;
+
+struct CharacterStats {
+    string character_name;
+    int games_played;
+    int total_points;
+    int wins;
+    int top2;
+    int top3;
+    int total_health;
+    int total_balance;
+    int total_rounds;
+    int eliminations;
+    int survivals;
+    
+    CharacterStats() : character_name(""), games_played(0),
+        total_points(0), wins(0), top2(0), top3(0), total_health(0),
+        total_balance(0), total_rounds(0), eliminations(0), survivals(0) {}
+    
+    CharacterStats(const string& name) : character_name(name), games_played(0),
+        total_points(0), wins(0), top2(0), top3(0), total_health(0),
+        total_balance(0), total_rounds(0), eliminations(0), survivals(0) {}
+};
 
 struct BotRating {
     int id;
     string name;
     string path;
     string unique_key;
-    double elo;
+    int total_points;
     int games_played;
     int wins;
     int top2_finishes;
@@ -39,18 +61,22 @@ struct BotRating {
     int survivals;
     int total_position;
     int total_dominance;
-    vector<pair<int, double>> elo_history;
+    vector<pair<int, int>> points_history;
     map<string, int> head_to_head_wins;
     map<string, int> head_to_head_losses;
     map<int, map<string, pair<int, int>>> head_to_head_history;
+    map<string, CharacterStats> character_stats;
     
     BotRating(int bot_id, const string& n, const string& p) : 
         id(bot_id), name(n), path(p), unique_key(p + "_" + to_string(bot_id)),
-        elo(INITIAL_ELO), games_played(0), 
+        total_points(0), games_played(0), 
         wins(0), top2_finishes(0), top3_finishes(0), 
         total_rounds_survived(0), total_health(0), total_balance(0),
         eliminations(0), survivals(0), total_position(0), total_dominance(0) {
-        elo_history.push_back({0, INITIAL_ELO});
+        points_history.push_back({0, 0});
+        for(int i = 0; i < 5; i++) {
+            character_stats[PLAYER_NAMES[i]] = CharacterStats(PLAYER_NAMES[i]);
+        }
     }
 };
 
@@ -61,14 +87,11 @@ struct GameResult {
     vector<int> balance;
     vector<int> death_round;
     vector<int> rounds_survived;
+    vector<int> character_indices;
     string replay_file;
 };
 
-double expected_score(double rating_a, double rating_b) {
-    return 1.0 / (1.0 + pow(10.0, (rating_b - rating_a) / 400.0));
-}
-
-void update_elo(vector<BotRating>& ratings, const GameResult& result) {
+void update_ratings(vector<BotRating>& ratings, const GameResult& result) {
     int n = result.rankings.size();
     vector<int> idx_map(n);
     
@@ -81,28 +104,37 @@ void update_elo(vector<BotRating>& ratings, const GameResult& result) {
         }
     }
     
-    vector<double> elo_changes(n, 0.0);
-    
-    for(int i = 0; i < n; i++) {
-        for(int j = i + 1; j < n; j++) {
-            int bot_i = idx_map[i];
-            int bot_j = idx_map[j];
-            
-            double exp_i = expected_score(ratings[bot_i].elo, ratings[bot_j].elo);
-            double exp_j = 1.0 - exp_i;
-            
-            double score_i = 1.0;
-            double score_j = 0.0;
-            
-            elo_changes[i] += K_FACTOR * (score_i - exp_i);
-            elo_changes[j] += K_FACTOR * (score_j - exp_j);
-        }
-    }
-    
+    // Award points based on placement (5-4-3-2-1)
     for(int i = 0; i < n; i++) {
         int bot_idx = idx_map[i];
-        ratings[bot_idx].elo += elo_changes[i] / (n - 1);
+        int points = PLACEMENT_POINTS[i];
+        int ranking_in_game = result.rankings[i];
+        
+        ratings[bot_idx].total_points += points;
         ratings[bot_idx].games_played++;
+        
+        // Update character-specific stats
+        if(ranking_in_game < (int)result.character_indices.size()) {
+            int char_idx = result.character_indices[ranking_in_game];
+            string char_name = PLAYER_NAMES[char_idx];
+            CharacterStats& char_stats = ratings[bot_idx].character_stats[char_name];
+            char_stats.games_played++;
+            char_stats.total_points += points;
+            
+            if(i == 0) char_stats.wins++;
+            if(i < 2) char_stats.top2++;
+            if(i < 3) char_stats.top3++;
+            
+            char_stats.total_rounds += result.rounds_survived[ranking_in_game];
+            char_stats.total_health += result.health[ranking_in_game];
+            char_stats.total_balance += result.balance[ranking_in_game];
+            
+            if(result.health[ranking_in_game] <= 0) {
+                char_stats.eliminations++;
+            } else {
+                char_stats.survivals++;
+            }
+        }
         
         if(i == 0) {
             ratings[bot_idx].wins++;
@@ -241,6 +273,11 @@ GameResult run_game(const vector<string>& bot_unique_keys, const vector<string>&
         }
     }
     
+    // Character indices: bot at index i in game plays character i (Alex=0, Bob=1, etc.)
+    for(int i = 0; i < PLAYERS_PER_GAME; i++) {
+        result.character_indices.push_back(i);
+    }
+    
     vector<int> order(PLAYERS_PER_GAME);
     iota(order.begin(), order.end(), 0);
     
@@ -258,7 +295,7 @@ GameResult run_game(const vector<string>& bot_unique_keys, const vector<string>&
         
         if(result.health[a] != result.health[b]) return result.health[a] > result.health[b];
         if(result.balance[a] != result.balance[b]) return result.balance[a] > result.balance[b];
-        return a < b;
+        return false;
     });
     
     result.rankings = order;
@@ -312,6 +349,65 @@ long long binomial(int n, int k) {
     return result;
 }
 
+void save_bot_statistics(const vector<BotRating>& ratings, const string& output_folder) {
+    string bot_stats_folder = output_folder + "/bot_stats";
+    mkdir(bot_stats_folder.c_str(), 0775);
+    
+    for(const auto& bot : ratings) {
+        string bot_file = bot_stats_folder + "/" + bot.name + "_stats.json";
+        ofstream out(bot_file);
+        
+        out << "{\n";
+        out << "  \"bot_name\": \"" << bot.name << "\",\n";
+        out << "  \"bot_path\": \"" << bot.path << "\",\n";
+        out << "  \"bot_id\": " << bot.id << ",\n";
+        out << "  \"rank\": " << bot.id << ",\n";
+        out << "  \"total_points\": " << bot.total_points << ",\n";
+        out << "  \"games_played\": " << bot.games_played << ",\n";
+        out << "  \"wins\": " << bot.wins << ",\n";
+        out << "  \"avg_points_per_game\": " << fixed << setprecision(2) 
+            << (bot.games_played > 0 ? (1.0 * bot.total_points / bot.games_played) : 0) << ",\n";
+        out << "  \"win_rate\": " << fixed << setprecision(2) 
+            << (bot.games_played > 0 ? (100.0 * bot.wins / bot.games_played) : 0) << ",\n";
+        
+        // Character-specific stats
+        out << "  \"character_performance\": [\n";
+        vector<string> char_names = {"Alex", "Bob", "Cindy", "David", "Eric"};
+        for(size_t i = 0; i < char_names.size(); i++) {
+            const auto& char_stats = bot.character_stats.at(char_names[i]);
+            out << "    {\n";
+            out << "      \"character\": \"" << char_stats.character_name << "\",\n";
+            out << "      \"games_played\": " << char_stats.games_played << ",\n";
+            out << "      \"total_points\": " << char_stats.total_points << ",\n";
+            out << "      \"avg_points\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (1.0 * char_stats.total_points / char_stats.games_played) : 0) << ",\n";
+            out << "      \"wins\": " << char_stats.wins << ",\n";
+            out << "      \"win_rate\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (100.0 * char_stats.wins / char_stats.games_played) : 0) << ",\n";
+            out << "      \"top2_finishes\": " << char_stats.top2 << ",\n";
+            out << "      \"top3_finishes\": " << char_stats.top3 << ",\n";
+            out << "      \"avg_rounds_survived\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (1.0 * char_stats.total_rounds / char_stats.games_played) : 0) << ",\n";
+            out << "      \"avg_final_health\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (1.0 * char_stats.total_health / char_stats.games_played) : 0) << ",\n";
+            out << "      \"avg_final_balance\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (1.0 * char_stats.total_balance / char_stats.games_played) : 0) << ",\n";
+            out << "      \"elimination_rate\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (100.0 * char_stats.eliminations / char_stats.games_played) : 0) << ",\n";
+            out << "      \"survival_rate\": " << fixed << setprecision(2) 
+                << (char_stats.games_played > 0 ? (100.0 * char_stats.survivals / char_stats.games_played) : 0) << "\n";
+            out << "    }";
+            if(i < char_names.size() - 1) out << ",";
+            out << "\n";
+        }
+        out << "  ]\n";
+        out << "}\n";
+        out.close();
+    }
+    
+    cout << "Bot statistics saved to: " << bot_stats_folder << "/\n";
+}
+
 void save_tournament_result(const vector<BotRating>& ratings, int total_games, const string& output_folder) {
     mkdir(output_folder.c_str(), 0775);
     
@@ -322,11 +418,15 @@ void save_tournament_result(const vector<BotRating>& ratings, int total_games, c
     out << "  \"timestamp\": \"" << time(nullptr) << "\",\n";
     out << "  \"ratings\": [\n";
     
-    // Sort bots by ELO
+    // Sort bots by total points (descending), then by avg health as tiebreaker
     vector<int> order(ratings.size());
     iota(order.begin(), order.end(), 0);
     sort(order.begin(), order.end(), [&](int a, int b) {
-        return ratings[a].elo > ratings[b].elo;
+        if(ratings[a].total_points != ratings[b].total_points)
+            return ratings[a].total_points > ratings[b].total_points;
+        double avg_health_a = ratings[a].games_played > 0 ? (1.0 * ratings[a].total_health / ratings[a].games_played) : 0;
+        double avg_health_b = ratings[b].games_played > 0 ? (1.0 * ratings[b].total_health / ratings[b].games_played) : 0;
+        return avg_health_a > avg_health_b;
     });
     
     for(size_t i = 0; i < ratings.size(); i++) {
@@ -336,25 +436,25 @@ void save_tournament_result(const vector<BotRating>& ratings, int total_games, c
         out << "      \"id\": " << bot.id << ",\n";
         out << "      \"name\": \"" << bot.name << "\",\n";
         out << "      \"path\": \"" << bot.path << "\",\n";
-        out << "      \"elo\": " << fixed << setprecision(2) << bot.elo << ",\n";
+        out << "      \"total_points\": " << bot.total_points << ",\n";
+        out << "      \"avg_points_per_game\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (1.0 * bot.total_points / bot.games_played) : 0) << ",\n";
         out << "      \"games_played\": " << bot.games_played << ",\n";
         out << "      \"wins\": " << bot.wins << ",\n";
-        out << "      \"win_rate\": " << (bot.games_played > 0 ? (100.0 * bot.wins / bot.games_played) : 0) << ",\n";
+        out << "      \"win_rate\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (100.0 * bot.wins / bot.games_played) : 0) << ",\n";
         out << "      \"top2_finishes\": " << bot.top2_finishes << ",\n";
         out << "      \"top3_finishes\": " << bot.top3_finishes << ",\n";
-        out << "      \"avg_rounds_survived\": " << (bot.games_played > 0 ? (1.0 * bot.total_rounds_survived / bot.games_played) : 0) << ",\n";
-        out << "      \"avg_final_health\": " << (bot.games_played > 0 ? (1.0 * bot.total_health / bot.games_played) : 0) << ",\n";
-        out << "      \"avg_final_balance\": " << (bot.games_played > 0 ? (1.0 * bot.total_balance / bot.games_played) : 0) << ",\n";
-        out << "      \"elimination_rate\": " << (bot.games_played > 0 ? (100.0 * bot.eliminations / bot.games_played) : 0) << ",\n";
-        out << "      \"survival_rate\": " << (bot.games_played > 0 ? (100.0 * bot.survivals / bot.games_played) : 0) << ",\n";
-        out << "      \"avg_position\": " << (bot.games_played > 0 ? (1.0 * bot.total_position / bot.games_played) : 0) << ",\n";
-        out << "      \"elo_change\": " << fixed << setprecision(2) << (bot.elo - INITIAL_ELO) << ",\n";
-        out << "      \"avg_dominance\": " << (bot.wins > 0 ? (1.0 * bot.total_dominance / bot.wins) : 0) << ",\n";
-        out << "      \"elo_history\": [\n";
-        for(size_t j = 0; j < bot.elo_history.size(); j++) {
-            out << "        {\"game\": " << bot.elo_history[j].first 
-                << ", \"elo\": " << fixed << setprecision(2) << bot.elo_history[j].second << "}";
-            if(j < bot.elo_history.size() - 1) out << ",";
+        out << "      \"avg_rounds_survived\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (1.0 * bot.total_rounds_survived / bot.games_played) : 0) << ",\n";
+        out << "      \"avg_final_health\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (1.0 * bot.total_health / bot.games_played) : 0) << ",\n";
+        out << "      \"avg_final_balance\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (1.0 * bot.total_balance / bot.games_played) : 0) << ",\n";
+        out << "      \"elimination_rate\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (100.0 * bot.eliminations / bot.games_played) : 0) << ",\n";
+        out << "      \"survival_rate\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (100.0 * bot.survivals / bot.games_played) : 0) << ",\n";
+        out << "      \"avg_position\": " << fixed << setprecision(2) << (bot.games_played > 0 ? (1.0 * bot.total_position / bot.games_played) : 0) << ",\n";
+        out << "      \"avg_dominance\": " << fixed << setprecision(2) << (bot.wins > 0 ? (1.0 * bot.total_dominance / bot.wins) : 0) << ",\n";
+        out << "      \"points_history\": [\n";
+        for(size_t j = 0; j < bot.points_history.size(); j++) {
+            out << "        {\"game\": " << bot.points_history[j].first 
+                << ", \"points\": " << bot.points_history[j].second << "}";
+            if(j < bot.points_history.size() - 1) out << ",";
             out << "\n";
         }
         out << "      ],\n";
@@ -401,7 +501,11 @@ void print_results(const vector<BotRating>& ratings, int total_games) {
     vector<int> order(ratings.size());
     iota(order.begin(), order.end(), 0);
     sort(order.begin(), order.end(), [&](int a, int b) {
-        return ratings[a].elo > ratings[b].elo;
+        if(ratings[a].total_points != ratings[b].total_points)
+            return ratings[a].total_points > ratings[b].total_points;
+        double avg_health_a = ratings[a].games_played > 0 ? (1.0 * ratings[a].total_health / ratings[a].games_played) : 0;
+        double avg_health_b = ratings[b].games_played > 0 ? (1.0 * ratings[b].total_health / ratings[b].games_played) : 0;
+        return avg_health_a > avg_health_b;
     });
     
     cout << "\n\n";
@@ -414,7 +518,7 @@ void print_results(const vector<BotRating>& ratings, int total_games) {
     cout << left << setw(5) << "Rank" 
          << setw(5) << "ID"
          << setw(18) << "Bot Name" 
-         << setw(10) << "ELO" 
+         << setw(10) << "Points" 
          << setw(8) << "Games"
          << setw(8) << "Wins"
          << setw(10) << "Win%"
@@ -429,7 +533,7 @@ void print_results(const vector<BotRating>& ratings, int total_games) {
         cout << left << setw(5) << (i + 1)
              << setw(5) << bot.id
              << setw(18) << bot.name
-             << setw(10) << fixed << setprecision(1) << bot.elo
+             << setw(10) << bot.total_points
              << setw(8) << bot.games_played
              << setw(8) << bot.wins
              << setw(10) << fixed << setprecision(1) << win_rate
@@ -522,7 +626,7 @@ int main(int argc, char* argv[]) {
     long long num_permutations = factorial(PLAYERS_PER_GAME);
     long long total_games = num_combinations * num_permutations;
     
-    int elo_snapshot_interval = max(10, (int)(total_games / 80));
+    int snapshot_interval = max(10, (int)(total_games / 80));
     
     cout << "---------------------------------------------------------------------------------\n";
     cout << "                         BATTLEBOT TOURNAMENT                                    \n";
@@ -580,11 +684,11 @@ int main(int argc, char* argv[]) {
             GameResult result = run_game(game_keys, game_paths, game_count, total_games, output_folder);
             
             if(!result.rankings.empty()) {
-                update_elo(ratings, result);
+                update_ratings(ratings, result);
                 
-                if(game_count % elo_snapshot_interval == 0) {
+                if(game_count % snapshot_interval == 0) {
                     for(auto& rating : ratings) {
-                        rating.elo_history.push_back({game_count, rating.elo});
+                        rating.points_history.push_back({game_count, rating.total_points});
                         
                         map<string, pair<int, int>> h2h_snapshot;
                         for(const auto& other : ratings) {
@@ -602,13 +706,14 @@ int main(int argc, char* argv[]) {
     }
     
     for(auto& rating : ratings) {
-        rating.elo_history.push_back({game_count, rating.elo});
+        rating.points_history.push_back({game_count, rating.total_points});
     }
     
     cout << "\n\nTournament complete!\n";
     
     print_results(ratings, game_count);
     save_tournament_result(ratings, game_count, output_folder);
+    save_bot_statistics(ratings, output_folder);
     
     return 0;
 }

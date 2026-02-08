@@ -2,6 +2,7 @@
 engine
 sample_bot
 tournament
+team[1-9]
 *.o
 *.out
 
@@ -25,4 +26,4 @@ viewer/.cache
 imgui.ini
 
 replays/
-checkpoint1/
+checkpoint*/
