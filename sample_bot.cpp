@@ -1,4 +1,6 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 
 struct Player {
@@ -41,19 +43,8 @@ int main() {
             }
         }
         
-        // Simple strategy: Bid 50% of balance
-        Player &me = players[my_player_id - 1];
-        int my_bid = me.balance / 2;
-
-        // If health is low, bid more aggressively
-        if (me.health <= 4) {
-            my_bid = me.balance * 3 / 4;
-        }
-
-        // If we've gone without water, bid even more
-        if (me.no_water_days >= 2) {
-            my_bid = me.balance;
-        }
+        /* YOUR STRATEGY HERE */
+        int my_bid = 0;
         
         // Output bid
         cout << my_bid << endl;
